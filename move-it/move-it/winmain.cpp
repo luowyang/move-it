@@ -7,7 +7,6 @@
 //Environment: 请确保在Visual Studio 2017 IDE中编译，如有其它问题请参看README-运行说明
 
 #include <windows.h>
-//#include <tchar.h>
 
 //完成初始化过程：定义并注册窗口类，创建并显示窗口
 //输入程序示例句柄和窗口显示方式
@@ -25,7 +24,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	//初始化窗口，如果失败就弹出一个提示框并错误退出
 	if (!InitWindow(hInstance, nCmdShow))
 	{
-		MessageBox(NULL, L"创建窗口失败!", L"创建窗口", NULL);
+		MessageBox(NULL, "创建窗口失败!", "创建窗口", NULL);
 		return 1;
 	}
 
@@ -41,8 +40,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 BOOLEAN InitWindow(HINSTANCE hInstance, int nCmdShow)
 {
 	HWND hWnd;														//定义窗口句柄
-	TCHAR szWindowClass[] = L"WORDS";								//定义窗口类名称
-	TCHAR szTitle[] = L"依次显示五行文字";							//定义窗口标题
+	TCHAR szWindowClass[] = "MOVEIT";								//定义窗口类名称
+	TCHAR szTitle[] = "用键盘控制图形显示";							//定义窗口标题
 	WNDCLASS WndClass;												//定义窗口类
 	WndClass.cbClsExtra = 0;										//无窗口类扩展
 	WndClass.cbWndExtra = 0;										//无窗口实例扩展
@@ -80,51 +79,100 @@ BOOLEAN InitWindow(HINSTANCE hInstance, int nCmdShow)
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	HDC hDC;						//定义设备环境句柄
-	HFONT hF;						//定义字体句柄
 	PAINTSTRUCT PtStr;				//定义包含绘图信息的结构体变量
-	TEXTMETRIC tm;					//定义字体信息结构体变量
-	static POINT pos;				//定义用于保存文字坐标的结构体变量
-	static short fontSize[5];		//定义字号数组，分别保存各行文字的字体
-	static COLORREF fontColor[5];	//定义文字颜色数组，分别保存各行文字颜色的RGB值
-	static short nCount;			//定义静态变量，代表当前显示的是第几行文字
-	int i, j;						//定义临时变量，用于循环和存储临时数值
+	HPEN hPen;						//定义画笔结构体变量
+	HBRUSH hBrush;					//定义画刷结构体变量
+	static RECT rect;				//定义用于保存图形坐标的结构体变量
+	static BOOLEAN bEllipse = TRUE;	//定义静态布尔型变量，为真表示画椭圆，为假表示不画椭圆，初始为真
+	static BOOLEAN bRect = FALSE;	//定义静态布尔型变量，为真表示画矩形，为假表示不画矩形，初始为假
+	RECT ClientRect;				//定义保存客户区大小的结构体变量
+	int nStep = 10;					//定义图形移动的步长为10
+	BOOLEAN bFresh;					//定义布尔型变量，为真刷新用户区，为假不刷新用户区
 
-	//定义待显示的五行文字
-	LPCWSTR lpsz[] = {
-		L"显示一个窗口，在窗口中有五行文字（楷体）",
-		L"字体分别为楷体、黑体和自定义字体，字号由8到40线性增长（黑体）",
-		L"每一行文字的颜色由GRB(0,0,0)到RGB(255,255,255)线性增长（幼圆）",
-		L"每一行的文字相继出现后又消失（微软雅黑）",
-		L"其他所需参数请自行定义（隶书）"
-	};
-
-	//定义五行文字的字体名
-	LPCWSTR lpszFacename[] = {
-		L"楷体",
-		L"黑体",
-		L"幼圆",
-		L"微软雅黑",
-		L"隶书"
+	//待显示文字，用于进行操作提示
+	LPCSTR lpsz = {
+		"Ctrl画椭圆，Shift画矩形，→长度加10，←长度减10，↓高度加10，↑高度减10，Home向左移动，End向右移动，Page Up向上移动，Page Down向下移动",
 	};
 
 	switch (message)
 	{
 	case WM_CREATE:	//处理窗口创建消息
-		
+		//计算客户区中心，将中心位置作为图形中心，以10X10大小计算图形起始坐标
+		GetClientRect(hWnd, &ClientRect);
+		rect.left = (ClientRect.left + ClientRect.right) / 2 - 20;
+		rect.right = (ClientRect.left + ClientRect.right) / 2 + 20;
+		rect.top = (ClientRect.top + ClientRect.bottom) / 2 - 20;
+		rect.bottom = (ClientRect.top + ClientRect.bottom) / 2 + 20;
 		break;
-	case WM_PAINT:											//处理绘图消息
-		hDC = BeginPaint(hWnd, &PtStr);						//获得设备环境指针
-
-		
-		EndPaint(hWnd, &PtStr);	//删除设备环境句柄
-		break;
-	case WM_TIMER:	//处理计时器消息
-		//如果nIDTimer完成一次计时，就循环切换当前显示的文本行，并发出消息刷新整个用户区
-		if (wParam == nIDTimer)
+	case WM_KEYDOWN:		//处理键盘按键消息
+		bFresh = TRUE;		//默认刷新用户区
+		switch (wParam)
 		{
-			nCount = (nCount + 1) % 5;
-			InvalidateRect(hWnd, NULL, TRUE);
+		case VK_CONTROL:		//按下Ctrl键时，画椭圆，同时设置不画矩形
+			bEllipse = TRUE;
+			bRect = FALSE;
+			break;
+		case VK_SHIFT:			//按下Shift键时，画矩形，同时设置不画椭圆
+			bEllipse = FALSE;
+			bRect = TRUE;
+			break;
+		case VK_RIGHT:			//按向右箭头时，计算图形长度加10后的坐标
+			rect.right += 10;
+			break;
+		case VK_LEFT:			//按向左箭头时，计算图形长度减10后的坐标，图形长度最小为10
+			rect.right = (rect.right - rect.left <= 10) ? (rect.left + 10): (rect.right - 10);
+			break;
+		case VK_DOWN:			//按向下箭头时，计算图形高度加10后的坐标
+			rect.bottom += 10;
+			break;
+		case VK_UP:				//按向上箭头时，计算图形高度减10后的坐标，图形高度最小为10
+			rect.bottom = (rect.bottom - rect.top <= 10) ? (rect.top + 10) : (rect.bottom - 10);
+			break;
+		case VK_HOME:			//按Home键时，图形左移nStep长度，计算左移后各点坐标
+			rect.left -= nStep;
+			rect.right -= nStep;
+			break;
+		case VK_END:			//按End键时，图形右移nStep长度，计算右移后各点坐标
+			rect.left += nStep;
+			rect.right += nStep;
+			break;
+		case VK_PRIOR:			//按Page Up键时，图形上移nStep长度，计算上移后各点坐标
+			rect.top -= nStep;
+			rect.bottom -= nStep;
+			break;
+		case VK_NEXT:			//按Page Down键时，图形下移nStep长度，计算下移后各点坐标
+			rect.top += nStep;
+			rect.bottom += nStep;
+			break;
+		default:
+			bFresh = FALSE;		//如果按键未定义，不刷新用户区
+			break;
 		}
+		if (bFresh)
+			InvalidateRect(hWnd, NULL, TRUE);	//刷新整个用户区，使按键立即生效
+		break;
+	case WM_PAINT:										//处理绘图消息
+		hDC = BeginPaint(hWnd, &PtStr);					//获得设备环境指针
+		TextOut(hDC, 0, 0, lpsz, lstrlen(lpsz));		//输出操作提示
+		hPen = (HPEN)GetStockObject(BLACK_PEN);			//获取黑色画笔
+		hBrush = (HBRUSH)GetStockObject(NULL_BRUSH);	//获取虚画刷
+
+		//绘制出给定位置和大小的图形，位置和大小由rect记录的坐标决定
+		//若bEllipse为真，绘制椭圆
+		if (bEllipse)
+		{
+			Ellipse(hDC, rect.left, rect.top, rect.right, rect.bottom);
+		}
+
+		//若bRect为真，绘制椭圆
+		if (bRect)
+		{
+			Rectangle(hDC, rect.left, rect.top, rect.right, rect.bottom);
+		}
+
+		DeleteObject(hBrush);	//删除画刷对象
+		DeleteObject(hPen);		//删除画笔对象
+		EndPaint(hWnd, &PtStr);	//删除设备环境句柄
 		break;
 	case WM_DESTROY:										//处理关闭窗口消息
 		PostQuitMessage(0);									//发送WM_QUIT，退出程序
